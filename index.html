@@ -449,6 +449,21 @@ main{ padding-bottom:116px; }
     <button id="saveSettingsBtn" class="btn btn-primary w-full">সংরক্ষণ করুন</button>
 
     <div class="mt-6 pt-5" style="border-top:1px solid var(--border-subtle)">
+      <h4 class="font-display font-bold mb-1">ব্যাকআপ ও রিস্টোর</h4>
+      <p class="text-xs text-[var(--ink-muted)] mb-3">অ্যাপ আনইনস্টল করার আগে ব্যাকআপ নিন। নতুন করে ইনস্টল করে এখানে রিস্টোর করলে সব ডেটা ফিরে আসবে।</p>
+      <div class="grid grid-cols-2 gap-2">
+        <button id="bkCopyBtn" class="btn btn-primary" type="button">ব্যাকআপ কপি করুন</button>
+        <button id="bkFileBtn" class="btn btn-ghost" type="button">ফাইলে সেভ করুন</button>
+      </div>
+      <textarea id="bkText" class="input-field font-num mt-3" rows="3" placeholder="রিস্টোর করতে ব্যাকআপ লেখা এখানে পেস্ট করুন…" style="font-size:11px"></textarea>
+      <div class="grid grid-cols-2 gap-2 mt-2">
+        <button id="bkRestoreBtn" class="btn btn-primary" type="button">পেস্ট করা লেখা থেকে রিস্টোর</button>
+        <button id="bkPickBtn" class="btn btn-ghost" type="button">ফাইল থেকে রিস্টোর</button>
+      </div>
+      <input id="bkFile" type="file" accept=".json,application/json,text/plain" style="display:none">
+    </div>
+
+    <div class="mt-6 pt-5" style="border-top:1px solid var(--border-subtle)">
       <p class="text-xs text-[var(--ink-muted)] mb-3">সব টাস্ক, প্ল্যান, স্ট্রিক, পড়ার ঘণ্টার হিসাব এবং সেটিংস স্থায়ীভাবে মুছে ফেলা হবে।</p>
       <button id="resetAllBtn" class="btn btn-danger w-full">সব ডেটা রিসেট করুন</button>
     </div>
@@ -1093,6 +1108,66 @@ document.getElementById('resetAllBtn').addEventListener('click', async () => {
   populateSettingsForm();
   closeSettings();
   showToast('সব ডেটা রিসেট করা হয়েছে।');
+});
+
+/* ============================
+   Backup & restore
+   ============================ */
+async function buildBackup(){
+  const data = {};
+  for (const k of Object.values(KEYS)){ const v = await storageGet(k); if (v !== null) data[k] = v; }
+  return JSON.stringify({ app:'next-mission', version:1, savedAt:new Date().toISOString(), data });
+}
+async function copyText(text){
+  try{ if (navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(text); return true; } }catch(e){}
+  try{
+    const ta = document.getElementById('bkText'); ta.value = text; ta.focus(); ta.select();
+    return document.execCommand('copy');
+  }catch(e){ return false; }
+}
+async function restoreFromText(text){
+  let obj;
+  try{ obj = JSON.parse(text.trim()); }catch(e){ showToast('ব্যাকআপ লেখাটি সঠিক নয়।'); return; }
+  if (!obj || obj.app !== 'next-mission' || !obj.data || typeof obj.data !== 'object'){ showToast('এটি এই অ্যাপের ব্যাকআপ নয়।'); return; }
+  if (!confirm('বর্তমান সব ডেটা মুছে ব্যাকআপ থেকে ফিরিয়ে আনবেন?')) return;
+  for (const k of Object.values(KEYS)){
+    if (typeof obj.data[k] === 'string') await storageSet(k, obj.data[k]); else await storageDelete(k);
+  }
+  showToast('রিস্টোর সম্পন্ন। অ্যাপ রিলোড হচ্ছে…');
+  setTimeout(() => location.reload(), 900);
+}
+document.getElementById('bkCopyBtn').addEventListener('click', async () => {
+  const text = await buildBackup();
+  document.getElementById('bkText').value = text;
+  const ok = await copyText(text);
+  showToast(ok ? 'ব্যাকআপ কপি হয়েছে। নোট বা মেসেজে পেস্ট করে রাখুন।' : 'কপি হয়নি। নিচের ঘর থেকে লেখাটি নিজে কপি করুন।');
+});
+document.getElementById('bkFileBtn').addEventListener('click', async () => {
+  const text = await buildBackup();
+  document.getElementById('bkText').value = text;
+  const name = 'next-mission-backup-' + isoDate(new Date()) + '.json';
+  try{
+    const file = new File([text], name, { type:'application/json' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], title:'পরবর্তী মিশন ব্যাকআপ' }); return; }
+  }catch(e){ if (e && e.name === 'AbortError') return; }
+  try{
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type:'application/json' }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    showToast('ফাইল সেভ না হলে "ব্যাকআপ কপি করুন" ব্যবহার করুন।');
+  }catch(e){ showToast('ফাইল সেভ হয়নি। "ব্যাকআপ কপি করুন" ব্যবহার করুন।'); }
+});
+document.getElementById('bkRestoreBtn').addEventListener('click', () => {
+  const t = document.getElementById('bkText').value;
+  if (!t.trim()){ showToast('আগে ব্যাকআপ লেখা পেস্ট করুন।'); return; }
+  restoreFromText(t);
+});
+document.getElementById('bkPickBtn').addEventListener('click', () => document.getElementById('bkFile').click());
+document.getElementById('bkFile').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const text = await f.text(); e.target.value = '';
+  restoreFromText(text);
 });
 
 /* ============================
