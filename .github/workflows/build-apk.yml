@@ -1,0 +1,107 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - tailwind.css
+      - manifest.json
+      - debug.keystore.b64
+      - sw.js
+      - icons/**
+      - .github/workflows/build-apk.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Prepare web files
+        run: |
+          mkdir -p www
+          cp index.html tailwind.css manifest.json sw.js www/
+          cp -r icons www/icons
+
+      - name: Create Capacitor Android project
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          cat > capacitor.config.json <<'JSON'
+          {
+            "appId": "com.nextmission.app",
+            "appName": "পরবর্তী মিশন",
+            "webDir": "www",
+            "backgroundColor": "#0A1410"
+          }
+          JSON
+          npx cap add android
+
+      - name: Set app icon
+        run: |
+          RES=android/app/src/main/res
+          declare -A SZ=( [mdpi]=48 [hdpi]=72 [xhdpi]=96 [xxhdpi]=144 [xxxhdpi]=192 )
+          for d in "${!SZ[@]}"; do
+            dir="$RES/mipmap-$d"
+            mkdir -p "$dir"
+            rm -f "$dir"/ic_launcher*.webp "$dir"/ic_launcher*.png
+            convert icons/icon-512.png -resize ${SZ[$d]}x${SZ[$d]} "$dir/ic_launcher.png"
+            cp "$dir/ic_launcher.png" "$dir/ic_launcher_round.png"
+          done
+          mkdir -p $RES/drawable-nodpi $RES/mipmap-anydpi-v26 $RES/values
+          cp icons/foreground.png $RES/drawable-nodpi/nm_foreground.png
+          cat > $RES/values/nm_colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="nm_bg">#0A1410</color>
+          </resources>
+          XML
+          for n in ic_launcher ic_launcher_round; do
+            cat > $RES/mipmap-anydpi-v26/$n.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/nm_bg"/>
+              <foreground android:drawable="@drawable/nm_foreground"/>
+          </adaptive-icon>
+          XML
+          done
+
+      - name: Use fixed signing key and version number
+        run: |
+          mkdir -p ~/.android
+          base64 -d debug.keystore.b64 > ~/.android/debug.keystore
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/" android/app/build.gradle
+
+      - name: Sync and build debug APK
+        run: |
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publish APK to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk NextMission.apk
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest NextMission.apk \
+            --title "পরবর্তী মিশন — APK" \
+            --notes "Latest build — download NextMission.apk and install it."
