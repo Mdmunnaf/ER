@@ -135,6 +135,16 @@ body{
 @keyframes draw{ to{ stroke-dashoffset:0; } }
 @keyframes stampPop{ 0%{ transform:scale(1.7) rotate(-10deg); } 55%{ transform:scale(0.92) rotate(3deg); } 100%{ transform:scale(1) rotate(0);} }
 .task-text{ flex:1; font-size:14px; color:var(--ink-primary); }
+.task-time{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--gold-strong); white-space:nowrap; cursor:pointer; padding:2px 0; }
+.task-time.empty{ color:var(--ink-faint); }
+.task-row.done .task-time{ color:var(--ink-faint); }
+.time-pair{ display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+.time-pair label{ font-size:11px; color:var(--ink-muted); white-space:nowrap; }
+.time-pair input{ flex:1; min-width:0; font-family:'JetBrains Mono', monospace; font-size:13px; }
+.bp-card{ cursor:pointer; }
+.bp-body{ cursor:default; }
+.bp-chev{ display:inline-block; transition:transform .2s; color:var(--ink-muted); font-size:12px; margin-left:6px; }
+.bp-card.open .bp-chev{ transform:rotate(90deg); }
 .task-row.done .task-text{ text-decoration:line-through; color:var(--ink-faint); }
 .task-del{ color:var(--ink-faint); width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:10px; transition:all .15s; }
 .task-del svg{ width:15px; height:15px; }
@@ -340,6 +350,10 @@ main{ padding-bottom:116px; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
       </button>
     </form>
+    <div class="time-pair" id="newTaskTimes">
+      <label for="newTaskFrom">শুরু</label><input id="newTaskFrom" type="time" class="input-field">
+      <label for="newTaskTo">শেষ</label><input id="newTaskTo" type="time" class="input-field">
+    </div>
 
     <div class="space-y-2" id="taskList"></div>
 
@@ -758,6 +772,7 @@ document.getElementById('rtDefault').addEventListener('click', async () => {
    Big plans (বড় প্ল্যান → সাব প্ল্যান)
    ============================ */
 let bigPlans = [];
+const openPlans = new Set();
 function addDays(date, days){ const d=new Date(date+'T12:00:00'); d.setDate(d.getDate()+days); return d; }
 function savePlans(){ return storageSet(KEYS.plans, JSON.stringify(bigPlans)); }
 function newId(){ return Date.now() + Math.floor(Math.random()*1000); }
@@ -778,10 +793,11 @@ function renderPlan(){
         '<span class="txt" data-sub-edit="' + p.id + ':' + x.id + '">' + escapeHtml(x.text) + '</span>' +
         '<button type="button" class="x" data-sub-del="' + p.id + ':' + x.id + '" aria-label="সাব প্ল্যান মুছুন">✕</button>' +
       '</div>').join('');
-    return '<div class="bp-card">' +
+    const isOpen = openPlans.has(p.id);
+    return '<div class="bp-card' + (isOpen ? ' open' : '') + '" data-plan-card="' + p.id + '">' +
       '<div class="flex items-start justify-between gap-2">' +
         '<div class="min-w-0"><p class="text-[11px] text-[var(--gold-strong)] font-semibold">বড় প্ল্যান</p>' +
-        '<h3 class="font-display font-bold text-base mt-0.5 break-words">' + escapeHtml(p.title) + '</h3></div>' +
+        '<h3 class="font-display font-bold text-base mt-0.5 break-words">' + escapeHtml(p.title) + '<span class="bp-chev">▶</span></h3></div>' +
         '<div class="flex gap-1 shrink-0">' +
           '<button type="button" class="task-del" data-plan-rename="' + p.id + '" aria-label="নাম বদলান"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>' +
           '<button type="button" class="task-del" data-plan-del="' + p.id + '" aria-label="বড় প্ল্যান মুছুন">' + ICONS.trash + '</button>' +
@@ -789,11 +805,13 @@ function renderPlan(){
       '</div>' +
       '<p class="text-xs text-[var(--ink-muted)] mt-2 font-num">' + done + '/' + total + ' সাব প্ল্যান সম্পন্ন' + (total ? ' · ' + pct + '%' : '') + '</p>' +
       '<div class="bp-bar"><div style="width:' + pct + '%"></div></div>' +
+      '<div class="bp-body"' + (isOpen ? '' : ' hidden') + '>' +
       '<div class="space-y-2 mt-3">' + (subs || '<p class="text-xs text-[var(--ink-faint)] py-1">এখনো কোনো সাব প্ল্যান নেই।</p>') + '</div>' +
       '<form class="flex gap-2 mt-3" data-sub-form="' + p.id + '">' +
         '<input class="input-field" maxlength="120" placeholder="নতুন সাব প্ল্যান লিখুন" required>' +
         '<button class="btn btn-ghost shrink-0" type="submit">+ যোগ</button>' +
       '</form>' +
+      '</div>' +
     '</div>';
   }).join('');
 }
@@ -825,6 +843,13 @@ document.getElementById('bigPlanList').addEventListener('change', async e => {
 });
 document.getElementById('bigPlanList').addEventListener('click', async e => {
   const t = e.target;
+  const card = t.closest('[data-plan-card]');
+  if (card && !t.closest('button') && !t.closest('.bp-body')){
+    const id = Number(card.dataset.planCard);
+    if (openPlans.has(id)) openPlans.delete(id); else openPlans.add(id);
+    renderPlan();
+    return;
+  }
   const del = t.closest('[data-plan-del]');
   if (del){
     const p = bigPlans.find(x => x.id === Number(del.dataset.planDel));
@@ -866,6 +891,8 @@ function renderTasks(){
       return '<div class="task-row' + (t.done ? ' done' : '') + '" data-id="' + t.id + '">' +
         '<button class="task-check' + (t.done ? ' checked' : '') + '" data-action="toggle" aria-label="সম্পন্ন করুন">' + ICONS.check + '</button>' +
         '<span class="task-text">' + escapeHtml(t.text) + '</span>' +
+        '<span class="task-time' + (t.from && t.to ? '' : ' empty') + '" data-action="time">' +
+          (t.from && t.to ? '(' + escapeHtml(t.from) + ' - ' + escapeHtml(t.to) + ')' : '(সময় দিন)') + '</span>' +
         '<button class="task-del" data-action="delete" aria-label="মুছে ফেলুন">' + ICONS.trash + '</button>' +
       '</div>';
     }).join('');
@@ -883,7 +910,21 @@ document.getElementById('taskList').addEventListener('click', (e) => {
   const action = e.target.closest('[data-action]')?.dataset.action;
   if (action === 'toggle') toggleTask(id);
   if (action === 'delete') deleteTask(id);
+  if (action === 'time') editTaskTime(id);
 });
+function editTaskTime(id){
+  const task = tasks.find(t => t.id === id); if (!task) return;
+  const cur = task.from && task.to ? task.from + '-' + task.to : '';
+  const v = prompt('সময় লিখুন (যেমন 09:00-10:30)। মুছতে ঘর ফাঁকা রাখুন:', cur);
+  if (v === null) return;
+  if (!v.trim()){ delete task.from; delete task.to; }
+  else {
+    const m = v.replace(/\s/g,'').match(/^(\d{1,2}):(\d{2})[-–](\d{1,2}):(\d{2})$/);
+    if (!m || +m[1] > 23 || +m[3] > 23 || +m[2] > 59 || +m[4] > 59){ showToast('সময় সঠিক নয়। উদাহরণ: 09:00-10:30'); return; }
+    task.from = m[1].padStart(2,'0') + ':' + m[2]; task.to = m[3].padStart(2,'0') + ':' + m[4];
+  }
+  persistTasks(); renderTasks();
+}
 
 function toggleTask(id){
   const task = tasks.find(t => t.id === id);
@@ -909,8 +950,11 @@ document.getElementById('addTaskForm').addEventListener('submit', (e) => {
   const input = document.getElementById('newTaskInput');
   const text = input.value.trim();
   if (!text) return;
-  tasks.push({ id: Date.now(), text, done:false });
-  input.value = '';
+  const from = document.getElementById('newTaskFrom').value, to = document.getElementById('newTaskTo').value;
+  const t = { id: Date.now(), text, done:false };
+  if (from && to){ t.from = from; t.to = to; }
+  tasks.push(t);
+  input.value = ''; document.getElementById('newTaskFrom').value = ''; document.getElementById('newTaskTo').value = '';
   persistTasks();
   renderTasks();
   renderStats();
