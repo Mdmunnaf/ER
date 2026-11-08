@@ -914,16 +914,31 @@ document.getElementById('taskList').addEventListener('click', (e) => {
 });
 function editTaskTime(id){
   const task = tasks.find(t => t.id === id); if (!task) return;
-  const cur = task.from && task.to ? task.from + '-' + task.to : '';
-  const v = prompt('সময় লিখুন (যেমন 09:00-10:30)। মুছতে ঘর ফাঁকা রাখুন:', cur);
-  if (v === null) return;
-  if (!v.trim()){ delete task.from; delete task.to; }
-  else {
-    const m = v.replace(/\s/g,'').match(/^(\d{1,2}):(\d{2})[-–](\d{1,2}):(\d{2})$/);
-    if (!m || +m[1] > 23 || +m[3] > 23 || +m[2] > 59 || +m[4] > 59){ showToast('সময় সঠিক নয়। উদাহরণ: 09:00-10:30'); return; }
-    task.from = m[1].padStart(2,'0') + ':' + m[2]; task.to = m[3].padStart(2,'0') + ':' + m[4];
-  }
-  persistTasks(); renderTasks();
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML =
+    '<div class="card" style="width:100%;max-width:340px;background:var(--bg-elevated)">' +
+      '<h4 class="font-display font-bold mb-3">সময় নির্ধারণ</h4>' +
+      '<label class="text-xs text-[var(--ink-muted)]">শুরু</label>' +
+      '<input id="ttFrom" type="time" class="input-field font-num mb-3" value="' + (task.from || '') + '">' +
+      '<label class="text-xs text-[var(--ink-muted)]">শেষ</label>' +
+      '<input id="ttTo" type="time" class="input-field font-num mb-4" value="' + (task.to || '') + '">' +
+      '<div class="grid grid-cols-3 gap-2">' +
+        '<button type="button" class="btn btn-primary" id="ttSave">সেভ</button>' +
+        '<button type="button" class="btn btn-ghost" id="ttClear">মুছুন</button>' +
+        '<button type="button" class="btn btn-ghost" id="ttCancel">বাতিল</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', e => { if (e.target === ov) close(); });
+  ov.querySelector('#ttCancel').onclick = close;
+  ov.querySelector('#ttClear').onclick = () => { delete task.from; delete task.to; persistTasks(); renderTasks(); close(); };
+  ov.querySelector('#ttSave').onclick = () => {
+    const f = ov.querySelector('#ttFrom').value, t = ov.querySelector('#ttTo').value;
+    if (!f || !t){ showToast('শুরু ও শেষ দুটো সময়ই দিন।'); return; }
+    task.from = f; task.to = t; persistTasks(); renderTasks(); close();
+  };
 }
 
 function toggleTask(id){
