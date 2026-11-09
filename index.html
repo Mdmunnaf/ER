@@ -222,11 +222,11 @@ main{ padding-bottom:116px; }
 .pg-diff.up{ background:var(--brand-soft); color:var(--brand-strong); }
 .pg-diff.down{ background:var(--red-soft); color:var(--red); }
 .pg-diff.same{ background:var(--bg-elevated-2); color:var(--ink-muted); }
-.cap-wrap{ display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:14px; }
-.cap-tube{ position:relative; width:96px; height:230px; border-radius:22px; border:2px solid var(--border-strong); background:transparent; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; }
-.cap-fill{ width:100%; background:linear-gradient(180deg, var(--gold), var(--brand)); transition:height .5s ease; }
-.cap-empty{ display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono', monospace; font-weight:700; font-size:18px; color:var(--ink-primary); text-align:center; }
-.cap-sum{ font-size:12px; color:var(--ink-muted); text-align:center; }
+.pg-tube{ position:relative; width:100%; border-radius:10px 10px 4px 4px; border:2px solid; background:transparent; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; box-sizing:border-box; }
+.pg-tube-empty{ flex:1 1 0; min-height:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono', monospace; font-size:11.5px; font-weight:700; color:var(--ink-primary); }
+.pg-tube-fill{ width:100%; transition:height .5s ease; }
+.pg-col.is-today .pg-tube{ box-shadow:0 0 0 2px var(--ink-primary); }
+.pg-worked{ height:18px; display:flex; align-items:center; font-size:11.5px; font-weight:700; font-family:'JetBrains Mono', monospace; }
 .pg-chart{ display:flex; align-items:flex-end; gap:4px; min-height:230px; }
 .pg-col{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; background:none; border:0; padding:0; cursor:pointer; color:inherit; }
 .pg-lbl{ display:flex; flex-direction:column; align-items:center; text-align:center; line-height:1.2; margin-bottom:5px; }
@@ -390,8 +390,8 @@ main{ padding-bottom:116px; }
     </div>
 
     <div class="card" id="capCard">
-      <h2 class="section-title mb-1">দিনের কাজের সময়</h2>
-      <p class="text-xs text-[var(--ink-muted)] mb-3">সেই দিনে কাজ করার মতো মোট কত ঘণ্টা আছে সেট করুন। নিচে "পড়ার ঘণ্টা লিখুন" থেকে যত ঘণ্টা কাজ করবেন, খাম্বা তত রঙিন হবে।</p>
+      <h2 class="section-title mb-1">আজ কত ঘণ্টা কাজের সময় আছে</h2>
+      <p class="text-xs text-[var(--ink-muted)] mb-3">দিনের শুরুতে মোট কত ঘণ্টা কাজ করতে পারবেন লিখুন। চেকলিস্টে সময়সহ টাস্কে টিক দিলে উপরের সাপ্তাহিক খাম্বা ধীরে ধীরে রঙিন হবে।</p>
       <form id="capForm" class="space-y-2">
         <div class="grid grid-cols-2 gap-2">
           <input id="capDate" type="date" class="input-field font-num" required>
@@ -399,7 +399,7 @@ main{ padding-bottom:116px; }
         </div>
         <button class="btn btn-primary w-full" type="submit">সেট করুন</button>
       </form>
-      <div class="cap-wrap"><div id="capTube" class="cap-tube"></div><p id="capSum" class="cap-sum"></p></div>
+      <p id="capSum" class="text-xs text-[var(--ink-muted)] mt-3"></p>
     </div>
 
     <div class="card" id="pgFormCard">
@@ -920,6 +920,20 @@ function renderTasks(){
   document.getElementById('taskCountTag').textContent = doneCount + '/' + tasks.length;
   document.getElementById('taskProgressFill').style.width = (tasks.length ? (doneCount/tasks.length*100) : 0) + '%';
 }
+function taskHours(t){
+  if (!t || !t.from || !t.to) return 0;
+  const [fh, fm] = t.from.split(':').map(Number), [th, tm] = t.to.split(':').map(Number);
+  let d = (th * 60 + tm) - (fh * 60 + fm);
+  if (d < 0) d += 1440;
+  return d / 60;
+}
+function adjustStudyToday(delta){
+  if (!delta) return;
+  const iso = isoDate(new Date());
+  const v = Math.round((hoursOf(iso) + delta) * 100) / 100;
+  if (v <= 0) delete studyLog[iso]; else studyLog[iso] = v;
+  saveStudy(); renderStats();
+}
 function escapeHtml(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 document.getElementById('taskList').addEventListener('click', (e) => {
@@ -952,11 +966,14 @@ function editTaskTime(id){
   const close = () => ov.remove();
   ov.addEventListener('click', e => { if (e.target === ov) close(); });
   ov.querySelector('#ttCancel').onclick = close;
-  ov.querySelector('#ttClear').onclick = () => { delete task.from; delete task.to; persistTasks(); renderTasks(); close(); };
+  ov.querySelector('#ttClear').onclick = () => { if (task.done) adjustStudyToday(-taskHours(task)); delete task.from; delete task.to; persistTasks(); renderTasks(); close(); };
   ov.querySelector('#ttSave').onclick = () => {
     const f = ov.querySelector('#ttFrom').value, t = ov.querySelector('#ttTo').value;
     if (!f || !t){ showToast('শুরু ও শেষ দুটো সময়ই দিন।'); return; }
-    task.from = f; task.to = t; persistTasks(); renderTasks(); close();
+    const before = task.done ? taskHours(task) : 0;
+    task.from = f; task.to = t;
+    if (task.done) adjustStudyToday(taskHours(task) - before);
+    persistTasks(); renderTasks(); close();
   };
 }
 
@@ -964,6 +981,7 @@ function toggleTask(id){
   const task = tasks.find(t => t.id === id);
   if (!task) return;
   task.done = !task.done;
+  adjustStudyToday(task.done ? taskHours(task) : -taskHours(task));
   persistTasks();
   renderTasks();
   renderStats();
@@ -974,6 +992,8 @@ function toggleTask(id){
   }
 }
 function deleteTask(id){
+  const dt = tasks.find(t => t.id === id);
+  if (dt && dt.done) adjustStudyToday(-taskHours(dt));
   tasks = tasks.filter(t => t.id !== id);
   persistTasks();
   renderTasks();
@@ -994,6 +1014,7 @@ document.getElementById('addTaskForm').addEventListener('submit', (e) => {
   renderStats();
 });
 document.getElementById('resetTasksBtn').addEventListener('click', () => {
+  adjustStudyToday(-tasks.filter(t => t.done).reduce((a, t) => a + taskHours(t), 0));
   tasks = tasks.map(t => ({ ...t, done:false }));
   persistTasks();
   renderTasks();
@@ -1082,14 +1103,33 @@ function renderChart(){
     const iso = pgShift(start, i);
     return { iso, i, h: hoursOf(iso), prev: hoursOf(pgShift(iso, -1)), future: iso > today };
   });
-  const maxH = Math.max(4, Math.ceil(Math.max(...days.map(x => x.h))));
+  days.forEach(x => { x.cap = (typeof capLog[x.iso] === 'number' && !x.future) ? capLog[x.iso] : 0; });
+  const maxH = Math.max(4, Math.ceil(Math.max(...days.map(x => Math.max(x.h, x.cap)))));
   chart.innerHTML = days.map(x => {
+    const wd = WD_SHORT[new Date(x.iso + 'T12:00:00').getDay()];
+    const color = BAR_COLORS[x.i];
+    const head = '<span class="pg-lbl"><span class="wd" style="color:' + color + '">' + wd + '</span><span class="dt">' + pgDateLabel(x.iso) + '</span>';
+    const attrs = ' data-pg-date="' + x.iso + '" aria-label="' + wd + ' ' + pgDateLabel(x.iso) + ': ' + fmtH(x.h) + ' ঘণ্টা"';
+    const cls = 'pg-col' + (x.iso === today ? ' is-today' : '') + (x.future ? ' is-future' : '');
+    if (x.cap > 0){
+      const tubePx = Math.max(24, Math.round(x.cap / maxH * BAR_MAX_PX));
+      const pct = Math.min(100, x.h / x.cap * 100);
+      const left = Math.max(0, Math.round((x.cap - x.h) * 100) / 100);
+      const emptyPx = tubePx * (100 - pct) / 100;
+      return '<button type="button" class="' + cls + '"' + attrs + '>' + head +
+        '<span class="hr">' + fmtH(x.cap) + '</span></span>' +
+        '<span class="pg-tube" style="height:' + tubePx + 'px;border-color:' + color + '">' +
+          (left > 0 ? '<span class="pg-tube-empty">' + (emptyPx >= 16 ? fmtH(left) : '') + '</span>' : '') +
+          '<span class="pg-tube-fill" style="height:' + pct + '%;background:' + color + '"></span>' +
+        '</span>' +
+        '<span class="pg-worked" style="color:' + color + '">' + fmtH(x.h) + '</span>' +
+      '</button>';
+    }
     const px = x.future ? 3 : Math.max(3, Math.round(x.h / maxH * BAR_MAX_PX));
     const dl = x.future ? null : deltaInfo(x.h, x.prev);
-    const wd = WD_SHORT[new Date(x.iso + 'T12:00:00').getDay()];
-    return '<button type="button" class="pg-col' + (x.iso === today ? ' is-today' : '') + (x.future ? ' is-future' : '') + '" data-pg-date="' + x.iso + '" aria-label="' + wd + ' ' + pgDateLabel(x.iso) + ': ' + fmtH(x.h) + ' ঘণ্টা">' +
-      '<span class="pg-lbl"><span class="wd" style="color:' + BAR_COLORS[x.i] + '">' + wd + '</span><span class="dt">' + pgDateLabel(x.iso) + '</span><span class="hr">' + (x.future ? '–' : fmtH(x.h)) + '</span></span>' +
-      '<span class="pg-bar" style="height:' + px + 'px;background:' + BAR_COLORS[x.i] + '"></span>' +
+    return '<button type="button" class="' + cls + '"' + attrs + '>' + head +
+      '<span class="hr">' + (x.future ? '–' : fmtH(x.h)) + '</span></span>' +
+      '<span class="pg-bar" style="height:' + px + 'px;background:' + color + '"></span>' +
       '<span class="pg-delta ' + (dl ? dl.cls : '') + '">' + (dl ? dl.text : '') + '</span>' +
     '</button>';
   }).join('');
@@ -1108,24 +1148,13 @@ function renderChart(){
 let capLog = {};
 function saveCap(){ return storageSet(KEYS.capacity, JSON.stringify(capLog)); }
 function renderCapacity(){
-  const tube = document.getElementById('capTube'); if (!tube) return;
-  const dEl = document.getElementById('capDate');
+  const dEl = document.getElementById('capDate'); if (!dEl) return;
   if (!dEl.value) dEl.value = isoDate(new Date());
   const iso = dEl.value;
   const cap = typeof capLog[iso] === 'number' ? capLog[iso] : 0;
-  const worked = hoursOf(iso);
   document.getElementById('capHours').value = cap ? cap : '';
-  if (!cap){
-    tube.innerHTML = '<div class="cap-empty" style="flex:1;font-size:12px;font-weight:500;color:var(--ink-faint);padding:0 8px">আগে কাজের ঘণ্টা সেট করুন</div>';
-    document.getElementById('capSum').textContent = worked ? 'কাজ করেছেন ' + fmtH(worked) + ' ঘণ্টা' : '';
-    return;
-  }
-  const pct = Math.min(100, worked / cap * 100);
-  const left = Math.max(0, Math.round((cap - worked) * 100) / 100);
-  tube.innerHTML =
-    (left > 0 ? '<div class="cap-empty" style="flex:1 1 ' + (100 - pct) + '%;min-height:0">' + fmtH(left) + ' ঘণ্টা</div>' : '') +
-    '<div class="cap-fill" style="height:' + pct + '%"></div>';
-  document.getElementById('capSum').textContent = 'কাজ করেছেন ' + fmtH(worked) + ' / ' + fmtH(cap) + ' ঘণ্টা' + (worked > cap ? ' (+' + fmtH(worked - cap) + ' বেশি)' : '');
+  const w = hoursOf(iso);
+  document.getElementById('capSum').textContent = cap ? ('কাজের সময়: ' + fmtH(cap) + ' ঘণ্টা · কাজ করেছেন: ' + fmtH(w) + ' ঘণ্টা') : '';
 }
 document.getElementById('capDate').addEventListener('change', renderCapacity);
 document.getElementById('capForm').addEventListener('submit', async (e) => {
@@ -1134,7 +1163,7 @@ document.getElementById('capForm').addEventListener('submit', async (e) => {
   const h = parseFloat(document.getElementById('capHours').value);
   if (!iso || !isFinite(h) || h < 0 || h > 24){ showToast('০ থেকে ২৪ এর মধ্যে ঘণ্টা লিখুন।'); return; }
   if (h === 0) delete capLog[iso]; else capLog[iso] = Math.round(h * 100) / 100;
-  await saveCap(); renderCapacity();
+  await saveCap(); renderCapacity(); renderChart();
   showToast(pgDateLabel(iso) + ' তারিখের কাজের সময় সেট হয়েছে।');
 });
 
