@@ -222,6 +222,11 @@ main{ padding-bottom:116px; }
 .pg-diff.up{ background:var(--brand-soft); color:var(--brand-strong); }
 .pg-diff.down{ background:var(--red-soft); color:var(--red); }
 .pg-diff.same{ background:var(--bg-elevated-2); color:var(--ink-muted); }
+.cap-wrap{ display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:14px; }
+.cap-tube{ position:relative; width:96px; height:230px; border-radius:22px; border:2px solid var(--border-strong); background:transparent; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; }
+.cap-fill{ width:100%; background:linear-gradient(180deg, var(--gold), var(--brand)); transition:height .5s ease; }
+.cap-empty{ display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono', monospace; font-weight:700; font-size:18px; color:var(--ink-primary); text-align:center; }
+.cap-sum{ font-size:12px; color:var(--ink-muted); text-align:center; }
 .pg-chart{ display:flex; align-items:flex-end; gap:4px; min-height:230px; }
 .pg-col{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; background:none; border:0; padding:0; cursor:pointer; color:inherit; }
 .pg-lbl{ display:flex; flex-direction:column; align-items:center; text-align:center; line-height:1.2; margin-bottom:5px; }
@@ -384,6 +389,19 @@ main{ padding-bottom:116px; }
       </div>
     </div>
 
+    <div class="card" id="capCard">
+      <h2 class="section-title mb-1">দিনের কাজের সময়</h2>
+      <p class="text-xs text-[var(--ink-muted)] mb-3">সেই দিনে কাজ করার মতো মোট কত ঘণ্টা আছে সেট করুন। নিচে "পড়ার ঘণ্টা লিখুন" থেকে যত ঘণ্টা কাজ করবেন, খাম্বা তত রঙিন হবে।</p>
+      <form id="capForm" class="space-y-2">
+        <div class="grid grid-cols-2 gap-2">
+          <input id="capDate" type="date" class="input-field font-num" required>
+          <input id="capHours" type="number" min="0" max="24" step="0.25" inputmode="decimal" class="input-field font-num" placeholder="কাজের মতো ঘণ্টা" required>
+        </div>
+        <button class="btn btn-primary w-full" type="submit">সেট করুন</button>
+      </form>
+      <div class="cap-wrap"><div id="capTube" class="cap-tube"></div><p id="capSum" class="cap-sum"></p></div>
+    </div>
+
     <div class="card" id="pgFormCard">
       <h2 class="section-title mb-1">পড়ার ঘণ্টা লিখুন</h2>
       <p class="text-xs text-[var(--ink-muted)] mb-3">তারিখ বেছে সেই দিনে মোট কত ঘণ্টা পড়েছেন লিখুন (যেমন 3.5)। একই দিনে আবার লিখলে আগের সংখ্যা বদলে যাবে।</p>
@@ -513,7 +531,7 @@ async function storageDelete(key){
   delete memoryFallback[key];
 }
 
-const KEYS = { tasks:'tasks', appState:'app-state', settings:'settings', goals:'monthly-goals', plans:'big-plans', routine:'routine-blocks', study:'study-log' };
+const KEYS = { tasks:'tasks', appState:'app-state', settings:'settings', goals:'monthly-goals', plans:'big-plans', routine:'routine-blocks', study:'study-log', capacity:'capacity-log' };
 
 /* ============================
    1. State & defaults
@@ -579,10 +597,11 @@ function pad2(n){ return String(n).padStart(2,'0'); }
    3. Init
    ============================ */
 async function initApp(){
-  const [tRaw, sRaw, aRaw, pRaw, rRaw, lRaw] = await Promise.all([
-    storageGet(KEYS.tasks), storageGet(KEYS.settings), storageGet(KEYS.appState), storageGet(KEYS.plans), storageGet(KEYS.routine), storageGet(KEYS.study)
+  const [tRaw, sRaw, aRaw, pRaw, rRaw, lRaw, cRaw] = await Promise.all([
+    storageGet(KEYS.tasks), storageGet(KEYS.settings), storageGet(KEYS.appState), storageGet(KEYS.plans), storageGet(KEYS.routine), storageGet(KEYS.study), storageGet(KEYS.capacity)
   ]);
   try{ const l = lRaw ? JSON.parse(lRaw) : {}; studyLog = (l && typeof l === 'object' && !Array.isArray(l)) ? l : {}; }catch(e){ studyLog = {}; }
+  try{ const c = cRaw ? JSON.parse(cRaw) : {}; capLog = (c && typeof c === 'object' && !Array.isArray(c)) ? c : {}; }catch(e){ capLog = {}; }
   try{ if(rRaw){ const r=JSON.parse(rRaw); if(Array.isArray(r)&&r.length) ROUTINE_BLOCKS=r; } }catch(e){}
 
   try{ tasks = tRaw ? JSON.parse(tRaw) : [...DEFAULT_TASKS]; }catch(e){ tasks = [...DEFAULT_TASKS]; }
@@ -1086,9 +1105,43 @@ function renderChart(){
   document.getElementById('pgNext').disabled = pgWeekOffset >= 0;
 }
 
+let capLog = {};
+function saveCap(){ return storageSet(KEYS.capacity, JSON.stringify(capLog)); }
+function renderCapacity(){
+  const tube = document.getElementById('capTube'); if (!tube) return;
+  const dEl = document.getElementById('capDate');
+  if (!dEl.value) dEl.value = isoDate(new Date());
+  const iso = dEl.value;
+  const cap = typeof capLog[iso] === 'number' ? capLog[iso] : 0;
+  const worked = hoursOf(iso);
+  document.getElementById('capHours').value = cap ? cap : '';
+  if (!cap){
+    tube.innerHTML = '<div class="cap-empty" style="flex:1;font-size:12px;font-weight:500;color:var(--ink-faint);padding:0 8px">আগে কাজের ঘণ্টা সেট করুন</div>';
+    document.getElementById('capSum').textContent = worked ? 'কাজ করেছেন ' + fmtH(worked) + ' ঘণ্টা' : '';
+    return;
+  }
+  const pct = Math.min(100, worked / cap * 100);
+  const left = Math.max(0, Math.round((cap - worked) * 100) / 100);
+  tube.innerHTML =
+    (left > 0 ? '<div class="cap-empty" style="flex:1 1 ' + (100 - pct) + '%;min-height:0">' + fmtH(left) + ' ঘণ্টা</div>' : '') +
+    '<div class="cap-fill" style="height:' + pct + '%"></div>';
+  document.getElementById('capSum').textContent = 'কাজ করেছেন ' + fmtH(worked) + ' / ' + fmtH(cap) + ' ঘণ্টা' + (worked > cap ? ' (+' + fmtH(worked - cap) + ' বেশি)' : '');
+}
+document.getElementById('capDate').addEventListener('change', renderCapacity);
+document.getElementById('capForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const iso = document.getElementById('capDate').value;
+  const h = parseFloat(document.getElementById('capHours').value);
+  if (!iso || !isFinite(h) || h < 0 || h > 24){ showToast('০ থেকে ২৪ এর মধ্যে ঘণ্টা লিখুন।'); return; }
+  if (h === 0) delete capLog[iso]; else capLog[iso] = Math.round(h * 100) / 100;
+  await saveCap(); renderCapacity();
+  showToast(pgDateLabel(iso) + ' তারিখের কাজের সময় সেট হয়েছে।');
+});
+
 function renderProgress(){
   renderCompare();
   renderChart();
+  renderCapacity();
   const dateEl = document.getElementById('pgDate');
   if (dateEl){
     dateEl.max = isoDate(new Date());
@@ -1153,8 +1206,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async () =>
 document.getElementById('resetAllBtn').addEventListener('click', async () => {
   const sure = confirm('তুমি কি নিশ্চিত? সব টাস্ক, প্ল্যান, স্ট্রিক, পড়ার ঘণ্টার হিসাব এবং সেটিংস স্থায়ীভাবে মুছে যাবে।');
   if (!sure) return;
-  await Promise.all([storageDelete(KEYS.tasks), storageDelete(KEYS.settings), storageDelete(KEYS.appState), storageDelete(KEYS.goals), storageDelete(KEYS.plans), storageDelete(KEYS.routine), storageDelete(KEYS.study)]);
-  studyLog = {};
+  await Promise.all([storageDelete(KEYS.tasks), storageDelete(KEYS.settings), storageDelete(KEYS.appState), storageDelete(KEYS.goals), storageDelete(KEYS.plans), storageDelete(KEYS.routine), storageDelete(KEYS.study), storageDelete(KEYS.capacity)]);
+  studyLog = {}; capLog = {};
   bigPlans = [];
   ROUTINE_BLOCKS = DEFAULT_ROUTINE_BLOCKS.map(b=>({...b,start:[...b.start],end:[...b.end]}));
   tasks = [...DEFAULT_TASKS];
